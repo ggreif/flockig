@@ -2,12 +2,15 @@
 >              PolyKinds, KindSignatures, DataKinds, TypeOperators,
 >              TypeFamilies, UndecidableInstances,
 >              MultiParamTypeClasses, FlexibleInstances, FlexibleContexts,
->              TypeHoles, StandaloneDeriving #-}
+>              TypeHoles, StandaloneDeriving, ViewPatterns #-}
 
 > import Control.Monad.RWS.Lazy
 > import Control.Applicative
 > import Control.Monad.Logic
 > import GHC.TypeLits hiding (Nat)
+
+> data Hidden :: (k -> *) -> * where
+>   Hide :: m a -> Hidden m
 
 
 LogicT Tutorial
@@ -32,6 +35,7 @@ Data.Analytics.Datalog.)
 >   Val :: Eq t => t -> Item '[] t
 >   Var :: Sing (n :: Symbol) -> Item '[n] t
 >   Pair :: (Eq (t, u), Show t, Show u) => Item v t -> Item w u -> Item (v `Union` w) (t, u)
+>   Proj :: constr -> Sing p -> Sing m -> Item '[n] (Uncurr p constr) -> Item '[n] (Slice m constr)
 
 > deriving instance Show t => Show (Item vars t)
 
@@ -58,4 +62,39 @@ We want to match two items and look for a solution(s)
 > m2 = match' (Pair (Val 1) i3) (Pair (Val 1) i3)
 > m2' = observeAllT m2
 > m3 = match' (Pair i3 i3) (Pair (Val 1) i3)
+
+
+We naturally want to sub-structure logical variables,
+i.e. (pi2 A, pi1 A) = (1, 2)
+--> A = (2, 1)
+
+We'd like to (e.g.) have a data constructor with
+signature a0 -> a1 -> a2 -> ... -> r
+and have a projection variable w.r.t. a2
+
+How can we tell that?
+
+Idea: add a new constructor to Item
+
+Proj :: constr -> Nat' m -> Item '[n] t -> Item '[n] (Slice m constr)
+
+> data Nat = Z' | S' Nat
+> data instance Sing (n :: Nat) where
+>   Z :: Sing Z'
+>   S :: Sing n -> Sing (S' n)
+
+> instance SingE (KindParam :: OfKind Nat) where
+>   type DemoteRep (KindParam :: OfKind Nat) = Hidden (Sing :: Nat -> *)
+>   fromSing = Hide
+
+> nat2int :: Sing (a :: Nat) -> Int
+> nat2int Z = 0
+> nat2int (S n) = 1 + nat2int n
+
+> instance Show (Hidden (Sing :: Nat -> *)) where
+>   show (Hide (nat2int -> i)) = show i ++ "v"
+
+> type family Slice (n :: Nat) (constr :: *) :: *
+> type instance Slice Z' (a -> b) = a
+> type instance Slice (S' n) (a -> b) = Slice n b
 
